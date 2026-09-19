@@ -19,3 +19,10 @@ app:
     public-key: ${LANGFUSE_PUBLIC_KEY:}
     secret-key: ${LANGFUSE_SECRET_KEY:}
     base-url: ${LANGFUSE_BASE_URL:https://cloud.langfuse.com}
+    enabled: ${LANGFUSE_ENABLED:false}
+    environment: ${LANGFUSE_ENVIRONMENT:development}
+  adapters:
+    ata-rag:
+      base-url: ${ATA_RAG_BASE_URL:http://localhost:8081}
+    internship-coordinator:
+      base-url: ${INTERNSHIP_COORDINATOR_BASE_URL:http://localhost:8082}

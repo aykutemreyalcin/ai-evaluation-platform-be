@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import com.ata.evaluation.config.EvaluationRequest;
 import com.ata.evaluation.domain.*;
+import com.ata.evaluation.langfuse.NoopLangfuseTraceGateway;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -11,21 +12,21 @@ import org.junit.jupiter.api.Test;
 class EvaluationEngineTest {
     @Test void passes_when_all_metrics_meet_minimums() {
         var repository = dataset();
-        var engine = new EvaluationEngine(repository, List.of(adapter()), List.of(evaluator("correctness", .95)));
+        var engine = new EvaluationEngine(repository, List.of(adapter()), List.of(evaluator("correctness", .95)), new NoopLangfuseTraceGateway());
         var run = engine.run(new EvaluationRequest("ata-rag", "v1", "abc", List.of("correctness"), Map.of("correctness", .9), Map.of()));
         assertEquals(RunStatus.PASSED, run.status());
         assertEquals(.95, run.aggregateMetrics().get("correctness"));
     }
 
     @Test void fails_when_metric_is_below_minimum() {
-        var engine = new EvaluationEngine(dataset(), List.of(adapter()), List.of(evaluator("correctness", .5)));
+        var engine = new EvaluationEngine(dataset(), List.of(adapter()), List.of(evaluator("correctness", .5)), new NoopLangfuseTraceGateway());
         var run = engine.run(new EvaluationRequest("ata-rag", "v1", "abc", List.of("correctness"), Map.of("correctness", .9), Map.of()));
         assertEquals(RunStatus.FAILED, run.status());
         assertFalse(run.gateFailures().isEmpty());
     }
 
     @Test void rejects_unknown_evaluator_before_application_execution() {
-        var engine = new EvaluationEngine(dataset(), List.of(adapter()), List.of());
+        var engine = new EvaluationEngine(dataset(), List.of(adapter()), List.of(), new NoopLangfuseTraceGateway());
         assertThrows(IllegalArgumentException.class, () -> engine.run(new EvaluationRequest("ata-rag", "v1", "abc", List.of("missing"), Map.of(), Map.of())));
     }
 

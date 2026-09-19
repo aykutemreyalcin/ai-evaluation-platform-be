@@ -2,6 +2,7 @@ package com.ata.evaluation.engine;
 
 import com.ata.evaluation.config.EvaluationRequest;
 import com.ata.evaluation.domain.*;
+import com.ata.evaluation.langfuse.LangfuseTraceGateway;
 import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -12,11 +13,14 @@ public class EvaluationEngine {
     private final EvaluationDatasetRepository datasets;
     private final Map<String, SystemAdapter> adapters;
     private final Map<String, Evaluator> evaluators;
+    private final LangfuseTraceGateway traceGateway;
 
-    public EvaluationEngine(EvaluationDatasetRepository datasets, List<SystemAdapter> adapters, List<Evaluator> evaluators) {
+    public EvaluationEngine(EvaluationDatasetRepository datasets, List<SystemAdapter> adapters, List<Evaluator> evaluators,
+                            LangfuseTraceGateway traceGateway) {
         this.datasets = datasets;
         this.adapters = adapters.stream().collect(Collectors.toUnmodifiableMap(SystemAdapter::systemId, value -> value));
         this.evaluators = evaluators.stream().collect(Collectors.toUnmodifiableMap(Evaluator::name, value -> value));
+        this.traceGateway = traceGateway;
     }
 
     public EvaluationRun run(EvaluationRequest request) {
@@ -28,7 +32,9 @@ public class EvaluationEngine {
         for (var evaluationCase : datasets.findCases(request.system(), request.datasetVersion())) {
             var execution = adapter.execute(evaluationCase, nullToEmpty(request.configuration()));
             var context = new EvaluationContext(evaluationCase, execution.output(), nullToEmpty(request.configuration()), execution.traceId(), execution.latencyMs(), execution.tokenUsage(), execution.estimatedCost());
-            caseResults.add(new EvaluationRun.CaseEvaluation(evaluationCase.id(), selected.stream().map(evaluator -> evaluator.evaluate(context)).toList()));
+            var results = selected.stream().map(evaluator -> evaluator.evaluate(context)).toList();
+            traceGateway.traceEvaluation(context, results);
+            caseResults.add(new EvaluationRun.CaseEvaluation(evaluationCase.id(), results));
         }
         var metrics = aggregate(caseResults);
         var failures = gateFailures(metrics, nullToEmpty(request.minimumScores()));
