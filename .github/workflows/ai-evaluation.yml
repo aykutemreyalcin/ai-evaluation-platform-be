@@ -70,7 +70,9 @@ jobs:
       - name: Build production image
         run: docker build --tag ai-evaluation-platform:${{ github.sha }} .
       - name: Start container
-        run: docker run --detach --rm --name ai-evaluation-ci --publish 18080:8080 ai-evaluation-platform:${{ github.sha }}
+        run: >-
+          docker run --detach --name ai-evaluation-ci --publish 18080:8080
+          --env LANGFUSE_ENABLED=false ai-evaluation-platform:${{ github.sha }}
       - name: Verify health endpoint
         run: |
           for attempt in {1..30}; do
@@ -82,4 +84,4 @@ jobs:
           exit 1
       - name: Stop container
         if: always()
-        run: docker stop ai-evaluation-ci || true
+        run: docker rm --force ai-evaluation-ci || true
