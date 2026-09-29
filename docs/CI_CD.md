@@ -1,5 +1,13 @@
 # CI/CD evaluation gate
 
-The GitHub workflow runs the deterministic unit-test suite on every internal pull request and manual dispatch using Java 21. Add `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` as repository secrets before enabling hosted tracing. Forked pull requests do not receive repository secrets, so they run only the deterministic tests.
+Every pull request that changes backend source, configuration, the Dockerfile, or workflow configuration runs the **Validate and evaluate** GitHub Actions workflow. A push to `main` runs the same checks and publishes a deployable JAR artifact.
 
-For a Langfuse-hosted experiment gate, add `langfuse/experiment-action` after the golden dataset has been uploaded and its immutable version is known. The action should target that exact dataset version and fail when the runner raises a regression error; do not run paid LLM judges on every untrusted fork.
+The workflow has three required jobs:
+
+1. **Backend tests and package** runs the complete Maven verification suite, publishes Surefire reports, and uploads the JAR artifact.
+2. **Golden dataset regression gate** executes the immutable ATA RAG and Internship Coordinator golden datasets through deterministic adapters and compares the candidate metrics with a fixed baseline. A metric decline above the configured 2% allowance or a newly failed case fails the test and therefore blocks the PR check.
+3. **Production container smoke test** builds the production Docker image, starts it, and requires `GET /api/health` to return successfully.
+
+The CI gate intentionally does not call paid LLM providers or production systems. This keeps pull-request checks repeatable, secret-free, and safe for forks. Production tracing remains configured through runtime Langfuse environment variables; secrets are never validated by requiring them in CI.
+
+Coolify deploys the approved `main` branch image to production. The health-check job mirrors the production container contract before that deployment is accepted.

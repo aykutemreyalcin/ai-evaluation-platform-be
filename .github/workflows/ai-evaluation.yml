@@ -1,12 +1,25 @@
-name: AI evaluation gate
+name: Validate and evaluate
 on:
   pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'pom.xml'
+      - 'Dockerfile'
+      - '.github/workflows/**'
+  push:
     branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
+
+concurrency:
+  group: ai-evaluation-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  test-and-gate:
+  backend-quality:
+    name: Backend tests and package
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -15,11 +28,58 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
-      - run: mvn -B test
-      - name: Langfuse configuration check
-        env:
-          LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
-          LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
+      - name: Verify unit, evaluator, dataset, and API-contract tests
+        run: mvn -B -ntp verify
+      - name: Publish test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-reports
+          path: target/surefire-reports/
+          if-no-files-found: warn
+      - name: Publish deployable JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-evaluation-backend-${{ github.sha }}
+          path: target/*.jar
+          if-no-files-found: error
+
+  regression-gate:
+    name: Golden dataset regression gate
+    needs: backend-quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Run deterministic golden datasets and baseline comparison
+        run: >-
+          mvn -B -ntp
+          -Dtest=CiRegressionGateTest,ExperimentServiceTest,RagGoldenDatasetV1Test,InternshipGoldenDatasetV1Test
+          test
+
+  container-smoke-test:
+    name: Production container smoke test
+    needs: backend-quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build production image
+        run: docker build --tag ai-evaluation-platform:${{ github.sha }} .
+      - name: Start container
+        run: docker run --detach --rm --name ai-evaluation-ci --publish 18080:8080 ai-evaluation-platform:${{ github.sha }}
+      - name: Verify health endpoint
         run: |
-          test -n "$LANGFUSE_PUBLIC_KEY"
-          test -n "$LANGFUSE_SECRET_KEY"
+          for attempt in {1..30}; do
+            if curl --fail --silent --show-error http://127.0.0.1:18080/api/health; then exit 0; fi
+            sleep 2
+          done
+          echo 'Health endpoint did not become ready.' >&2
+          docker logs ai-evaluation-ci
+          exit 1
+      - name: Stop container
+        if: always()
+        run: docker stop ai-evaluation-ci || true
